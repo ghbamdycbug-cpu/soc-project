@@ -1,85 +1,82 @@
 
 
-from flask import Flask, request
+ from flask import Flask, request
 from urllib.parse import urlparse
 import re
 
 app = Flask(__name__)
 
 def check_link(URL):
-    النتيجة = 0
-    اسباب = []
+    score = 0
+    reasons = []
     url_low = URL.lower()
-    تحليله = urlparse(URL if "://" in URL else "http://" + URL)
-    دومين = تحليله.netloc.lower().replace("www.", "")
+    parsed = urlparse(URL if "://" in URL else "http://" + URL)
+    domain = parsed.netloc.lower().replace("www.", "")
 
-    # 1. IP بدل اسم النطاق
-    if re.match(r'^\d+\.\d+\.\d+\.\d+$', دومين):
-        النتيجة += 40
-        اسباب.append("⚠️ علامة تصيد قوية - IP بدل اسم نطاق")
+    # 1. IP instead of domain
+    if re.match(r'^\d+\.\d+\.\d+\.\d+$', domain):
+        score += 40
+        reasons.append("IP instead of domain name - strong phishing sign")
 
-    # 2. روابط مختصرة
+    # 2. Short links
     if any(x in url_low for x in ['bit.ly','tinyurl','t.co','is.gd']):
-        النتيجة += 30
-        اسباب.append("⚠️ رابط مختصر يخفي الوجهة الحقيقية")
+        score += 30
+        reasons.append("Short link hides real destination")
 
-    # 3. انتحال علامة - هذا الجديد والقوي!
-    brands = ['google','facebook','instagram','paypal','amazon','apple','microsoft','bank','whatsapp']
+    # 3. Brand impersonation - NEW STRONG CHECK
+    brands = ['google','facebook','instagram','paypal','amazon','apple','microsoft','whatsapp']
     for b in brands:
-        if b in url_low and not دومين.endswith(b + ".com") and دومين != b + ".com":
-            # تأكد انه مو الدومين الأصلي
-            if b in دومين and دومين != b + ".com":
-                النتيجة += 40
-                اسباب.append(f"⚠️ انتحال علامة تجارية: يحاول تقليد {b} وهو مو موقعه الأصلي")
-                break
+        if b in domain and domain != b + ".com":
+            score += 40
+            reasons.append(f"Brand impersonation: tries to fake {b} but domain is not {b}.com")
+            break
 
-    # 4. نطاقات رخيصة يستخدمها الهاكرز
-    if دومين.endswith(('.xyz','.top','.shop','.click','.online','.site','.buzz','.live')):
-        النتيجة += 20
-        اسباب.append("⚠️ نطاق رخيص مشبوه يكثر استخدامه في التصيد")
+    # 4. Cheap TLDs
+    if domain.endswith(('.xyz','.top','.shop','.click','.online','.site','.buzz','.live')):
+        score += 20
+        reasons.append("Cheap suspicious TLD used a lot in phishing")
 
-    # 5. شرطات كثيرة
-    if دومين.count('-') >= 2:
-        النتيجة += 15
-        اسباب.append("⚠️ فيه شرطات كثيرة - أسلوب تصيد شائع")
+    # 5. Many dashes
+    if domain.count('-') >= 2:
+        score += 15
+        reasons.append("Many dashes - common phishing trick")
 
-    # 6. كلمات مشبوهة
-    كلمات = ['login','secure','verify','account','bank','password','signin','update','confirm']
-    for w in كلمات:
+    # 6. Suspicious words
+    words = ['login','secure','verify','account','bank','password','signin','update','confirm']
+    for w in words:
         if w in url_low:
-            النتيجة += 10
-            اسباب.append(f"⚠️ يحتوي على كلمة مشبوهة: {w}")
+            score += 10
+            reasons.append(f"Contains suspicious word: {w}")
 
-    # 7. علامة @ في الرابط
+    # 7. @ in URL
     if '@' in URL:
-        النتيجة += 25
-        اسباب.append("⚠️ فيه @ في الرابط")
+        score += 25
+        reasons.append("Contains @ in URL")
 
-    if النتيجة > 100:
-        النتيجة = 100
-
-    return النتيجة, اسباب
+    if score > 100:
+        score = 100
+    return score, reasons
 
 @app.route('/', methods=['GET','POST'])
 def home():
-    نتيجة = None
-    اسباب = []
-    رابط = ""
+    score = None
+    reasons = []
+    link = ""
     if request.method == 'POST':
-        رابط = request.form.get('url','')
-        if رابط:
-            نتيجة, اسباب = check_link(رابط)
+        link = request.form.get('url','')
+        if link:
+            score, reasons = check_link(link)
+    color = "#00ff88" if score is not None and score < 30 else "#ffcc00" if score is not None and score < 60 else "#ff3b3b"
+    reasons_html = "<br>".join([f"<p>{r}</p>" for r in reasons])
+    result_html = f'<h2 style="color:{color};">Risk Score: {score}/100</h2>{reasons_html}' if score is not None else ''
     return f"""
     <div style="direction:rtl; text-align:center; font-family:Arial; background:#0a1929; color:white; min-height:100vh; padding:20px;">
-    <h2>🛡️ فاحص الروابط - كاشف التصيد</h2>
+    <h2>SOC - Link Checker</h2>
     <form method="POST">
-    <input name="url" value="{رابط}" placeholder="الصق الرابط هنا https://example.com" style="width:90%; padding:12px; border-radius:10px; border:none; text-align:center;">
+    <input name="url" value="{link}" placeholder="https://example.com" style="width:90%; padding:12px; border-radius:10px; border:none; text-align:center;">
     <br><br>
-    <button style="background:#ff3b3b; color:white; padding:12px 30px; border:none; border-radius:10px; font-size:18px;">افحص</button>
-    </form>
-    <br>
-    {'<h2 style="color:' + ('#00ff88' if نتيجة < 30 else '#ffcc00' if نتيجة < 60 else '#ff3b3b') + f';">درجة الخطر: {نتيجة}/100</h2>' + '<br>'.join([f'<p>{s}</p>' for s in اسباب]) if نتيجة is not None else ''}
-    </div>
+    <button style="background:#ff3b3b; color:white; padding:12px 30px; border:none; border-radius:10px; font-size:18px;">Check</button>
+    </form><br>{result_html}</div>
     """
 
 if __name__ == '__main__':
